@@ -21,18 +21,15 @@ class MarkovModel:
         rt_prob = 1.
         # process the first `gramsNumber-1` tokens
         for i in range(1, min(gramsNumber-1, len(tokens))):
-            curTok = tuple([tokens[i]])
             grams = tuple(tokens[:i+1])
-            rt_prob *= self.vocab.get_grams_probs(grams) /\
-                self.vocab.get_grams_probs(curTok)
-            rt_prob *= self.vocab.get_grams_candi_probs(tokens[i], grams)
+            prevGrams = grams[:-1]
+            rt_prob *= self.vocab.get_grams_prob_n(grams) / self.vocab.get_grams_prob_n(prevGrams)
         # process the rest
         for i in range(gramsNumber-1, len(tokens)):
-            curTok = tuple([tokens[i]])
             grams = tuple(tokens[i-gramsNumber+1:i+1])
-            rt_prob *= self.vocab.get_grams_probs(grams) /\
-                self.vocab.get_grams_probs(curTok)
-        rt_pp = np.power(rt_prob, -gramsNumber)
+            prevGrams = grams[:-1]
+            rt_prob *= self.vocab.get_grams_prob_n(grams) / self.vocab.get_grams_prob_n(prevGrams)
+        rt_pp = np.power(rt_prob, -1/gramsNumber)
         return rt_prob, rt_pp
 
 
@@ -49,40 +46,47 @@ class MarkovModel:
         # process the first `gramsNumber-1` tokens
         for i in range(1, min(gramsNumber-1, len(tokens))):
             grams = tuple(tokens[:i+1])
+            prevGrams = grams[:-1]
             curTok = tuple([tokens[i]])
-            rt *= self.vocab.get_grams_probs(grams) /\
-                self.vocab.get_grams_probs(curTok)
+            rt *= self.vocab.get_grams_prob_n(grams) / self.vocab.get_grams_prob_n(prevGrams)
             # rt *= self.vocab.get_grams_candi_probs(tokens[i], grams)
             if i == idx:
-                prevToks = grams[:i]
+                prevToks = grams[:-1]
                 allToksProbs = []
                 for j in range(len(self.vocab.uniVocab)):
-                    _curTok = self.vocab.uniVocab[j]
-                    allToks = prevToks + tuple([_curTok])
-                    gramProb = self.vocab.get_grams_probs(allToks)
-                    allToksProbs.append((_curTok ,gramProb / self.vocab.get_grams_probs(curTok)))
+                    _curTok = tuple([self.vocab.uniVocab[j]])
+                    allToks = prevToks + _curTok
+                    prob = self.vocab.get_grams_prob_n(allToks) / self.vocab.get_grams_prob_n(prevToks)
+                    allToksProbs.append((_curTok ,prob))
                 allToksProbs = sorted(allToksProbs, key=lambda x:x[1], reverse=True)
-                rankCurTok = [x[0] for x in allToksProbs].index(tokens[i])
+                allToksToks = [x[0] for x in allToksProbs]
+                if curTok not in allToksToks:
+                    rankCurTok = -1
+                else:
+                    rankCurTok = allToksToks.index(curTok)
                 allToksProbs = allToksProbs[:topK]
                 return allToksProbs, (tokens[i], rt, rankCurTok)
         # process the rest
         for i in range(gramsNumber-1, len(tokens)):
             grams = tuple(tokens[i-gramsNumber+1:i+1])
             curTok = tuple([tokens[i]])
-            rt *= self.vocab.get_grams_probs(grams) /\
-                self.vocab.get_grams_probs(curTok)
+            rt *= self.vocab.get_grams_prob_n(grams) /\
+                self.vocab.get_grams_prob_n(curTok)
             # rt *= self.vocab.get_grams_candi_probs(tokens[i], grams)
             if i == idx:
-                prevToks = grams[:i]
+                prevToks = grams[:-1]
                 allToksProbs = []
                 for j in range(len(self.vocab.uniVocab)):
-                    _curTok = self.vocab.uniVocab[j]
-                    allToks = prevToks + tuple([_curTok])
-                    gramProb = self.vocab.get_grams_probs(allToks)
-                    # candiProb = self.vocab.get_grams_candi_probs(tokens[i], allToks)
-                    allToksProbs.append((_curTok ,gramProb / self.vocab.get_grams_probs(curTok)))
+                    _curTok = tuple([self.vocab.uniVocab[j]])
+                    allToks = prevToks + _curTok
+                    prob = self.vocab.get_grams_prob_n(allToks) / self.vocab.get_grams_prob_n(prevToks)
+                    allToksProbs.append((_curTok ,prob))
                 allToksProbs = sorted(allToksProbs, key=lambda x:x[1], reverse=True)
-                rankCurTok = [x[0] for x in allToksProbs].index(tokens[i])
+                allToksToks = [x[0] for x in allToksProbs]
+                if curTok not in allToksToks:
+                    rankCurTok = -1
+                else:
+                    rankCurTok = allToksToks.index(curTok)
                 allToksProbs = allToksProbs[:topK]
                 return allToksProbs, (tokens[i], rt, rankCurTok)
 

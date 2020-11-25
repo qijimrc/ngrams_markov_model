@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from collections import Counter, defaultdict
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import copy
 from tqdm import tqdm
 import numpy as np
@@ -30,40 +30,90 @@ class Vocabulary:
               - corpus: A list of sentences with delimiter of balank space.
             Return
         """
-
         # statistics for all N-grams
-        ngrams2Counts = defaultdict(Counter)
+        uniVocab = Counter()
+        ngrams2Counts = defaultdict(int)
         for line in tqdm(corpus, desc="Build ngrams2Counts"):
             tokens = [self.bos] + line.strip().split() + [self.eos]
             for i in range(len(tokens)):
                 # calculate
-                j = i
-                while i-j <= N-1 and j >= 0:
-                    ngrams2Counts[i-j+1].update([tuple(tokens[j:i+1])])
-                    j -= 1
+                uniVocab.update(tuple([tokens[i]]))
+                if i >= N-1:
+                    ngrams2Counts[tuple(tokens[i-N+1:i+1])] += 1
         # process `unk`
-        for n in range(1, N+1):
-            ngrams2Counts[n][tuple([self.unk]*n)] = 0
+        ngrams2Counts[tuple([self.unk]*N)] = 0
 
 
         # calculate ngrams count with freq
-        count2Ngrams = defaultdict(lambda:defaultdict(set))
-        ngrams2Probs = defaultdict(lambda:defaultdict(float))
-        for n in ngrams2Counts:
-            # n2C = copy.copy(ngrams2Counts[n])
-            # sortedN2C = sorted(n2C.items(), key=lambda x:x[1])
-            # build
-            total = sum(ngrams2Counts[n].values())
-            for ngram in tqdm(ngrams2Counts[n], desc="Build count2Ngrams, ngrams2Probs for n="+str(n)):
-                count = ngrams2Counts[n][ngram]
-                ngrams2Probs[n][ngram] = ngrams2Counts[n][ngram] / total
-                count2Ngrams[n][count].add(ngram)
+        count2Ngrams = defaultdict(set)
+        for ngram in tqdm(ngrams2Counts, desc="Build count2Ngrams"):
+            count2Ngrams[ngrams2Counts[ngram]].add(ngram)
 
-        # build vocab matrix
-        sortedUnigrams = sorted(ngrams2Counts[1].items(), key=lambda x:x[1], reverse=True)
-        uniVocab = [self.unk] + [k[0] for k,v in sortedUnigrams]
+        # build probs
+        ngrams2Probs = defaultdict()
+        totalCount = sum(ngrams2Counts.values())
+        for ngrams in tqdm(ngrams2Counts, desc="Build ngrams2Probs"):
+            prob = ngrams2Counts[ngrams] / float(totalCount)
+            self.set_ngrams_prob(ngrams2Probs, ngrams, prob)
+
+        sortedUnigrams = sorted(uniVocab.items(), key=lambda x:x[1], reverse=True)
+        uniVocab = [self.unk] + [k for k,v in sortedUnigrams]
+        # update probs for subgrams
+        rt = self.update_all_subgrams_probs(ngrams2Probs, N)
+        assert np.abs(rt -1) < 1e-6
 
         return uniVocab, ngrams2Counts, count2Ngrams, ngrams2Probs
+
+    def set_ngrams_prob(self, gramsProbsDict: Dict, ngrams: Tuple, prob: float, cur: int=1):
+        if cur == len(ngrams):
+            if ngrams not in gramsProbsDict:
+                gramsProbsDict[ngrams] = defaultdict()
+            gramsProbsDict[ngrams]["curProb"] = prob
+        else:
+            if ngrams[:cur] not in gramsProbsDict:
+                gramsProbsDict[ngrams[:cur]] = defaultdict()
+                gramsProbsDict[ngrams[:cur]]["curProb"] = 0.
+            self.set_ngrams_prob(gramsProbsDict[ngrams[:cur]], ngrams, prob, cur+1)
+
+
+    def get_all_grams_prob_n(self, gramsProbsDict: Dict, N: int, rt: list):
+        if N == 1:
+            rt.append(gramsProbsDict["curProb"])
+        else:
+            for k in gramsProbsDict:
+                if k != "curProb":
+                    self.get_all_grams_prob_n(gramsProbsDict[k], N-1, rt)
+        return rt
+
+    def get_grams_prob_n(self, grams: Tuple[str]):
+
+        def get_unk_prob(N):
+            unkTok = tuple([self.unk]*N)
+            tmpDict = self.ngrams2Probs
+            for i in range(1, N+1):
+                tmpDict = tmpDict[unkTok[:i]]
+            return tmpDict["curProb"]
+
+        tmpDict = self.ngrams2Probs
+        for i in range(1, len(grams)+1):
+            if grams[:i] not in tmpDict:
+                # tmp = [x for x in grams]
+                # tmp[i-1] = self.unk
+                # grams = tuple(tmp)
+                return get_unk_prob(len(grams))
+            tmpDict = tmpDict[grams[:i]]
+        return tmpDict["curProb"]
+
+    def update_all_subgrams_probs(self, gramsProbsDict: Dict, N: int, cur: int=1):
+        if cur <= N:
+            totalProb = 0.
+            for k in gramsProbsDict:
+                if k != "curProb":
+                    totalProb += self.update_all_subgrams_probs(gramsProbsDict[k], N, cur+1)
+            gramsProbsDict["curProb"] = totalProb
+            return totalProb
+        else:
+            return gramsProbsDict["curProb"]
 
 
 
@@ -73,10 +123,11 @@ class Vocabulary:
             Args:
               - B: the parameter.
         """
-        for n in self.ngrams2Counts:
-            totalN = sum(self.ngrams2Counts[n].values())
-            for k in tqdm(self.ngrams2Probs[n], "Tuning with Laplace smoothing for n="+str(n)):
-                self.ngrams2Probs[n][k] = (self.ngrams2Counts[n][k]+1) / (totalN+B)
+        totalN = sum(self.ngrams2Counts.values())
+        for grams in tqdm(self.ngrams2Counts, "Tuning with Laplace smoothing"):
+            prob = (self.ngrams2Counts[grams]+1) / (totalN+B)
+            self.set_ngrams_prob(self.ngrams2Probs, grams, prob)
+        self.update_all_subgrams_probs(self.ngrams2Probs, self.gramsNumber)
 
 
     def tune_with_held_out_smoothing(self, heldOutData: List[str]):
@@ -87,45 +138,34 @@ class Vocabulary:
         """
 
         # statistics for all N-grams on held-out data
-        n2cInHeld = defaultdict(Counter)
+        n2cInHeld = defaultdict(int)
         for line in tqdm(heldOutData, desc="Processing with Held-Out Smoothing"):
             tokens = [self.bos] + line.strip().split() + [self.eos]
             for i in range(len(tokens)):
                 # calculate >1 grams
-                j = i
-                while i-j <= self.gramsNumber-1 and j >= 0:
-                    n2cInHeld[i-j+1].update([tuple(tokens[j:i+1])])
-                    j -= 1
+                if i >= self.gramsNumber-1:
+                    n2cInHeld[tuple(tokens[i-self.gramsNumber+1:i+1])] += 1
         # tune
-        vocabLen = len(self.ngrams2Counts[1])
-        for n in self.ngrams2Probs:
-            N = sum(n2cInHeld[n].values())
-            rt = defaultdict()
-            total = sum(self.ngrams2Counts[n].values())
-            for r in tqdm(self.count2Ngrams[n], desc="Tuning with Held-Out Smooth for n="+str(n)):
-                if r == 0:
-                    import ipdb
-                    ipdb.set_trace()
-                    if n == 1:
-                        N_r =1
-                    else:
-                        N_r = np.power(vocabLen, n) - total
-                    T_r = 0
-                    for gramsH in n2cInHeld[n]:
-                        if gramsH not in self.ngrams2Counts[n]:
-                            import ipdb
-                            ipdb.set_trace()
-                            T_r += n2cInHeld[n][gramsH]
-                else:
-                    gramsSet = self.count2Ngrams[n][r]
-                    N_r = len(gramsSet)
-                    T_r = sum([n2cInHeld[n][g] for g in gramsSet])
-                rt[r] = T_r/(N_r*N)
-
-            for grams in tqdm(self.ngrams2Probs[n], desc="Tuning with Held-Out Smooth for n="+str(n)):
-                r = self.ngrams2Counts[n][grams]
-                newPorb = rt[r]
-                self.ngrams2Probs[n][grams] = newPorb
+        vocabLen = len(self.uniVocab)
+        totalNgramsCounts = sum(self.ngrams2Counts.values())
+        N = sum(n2cInHeld.values())
+        for r in tqdm(self.count2Ngrams, desc="Tuning with Held-Out Smoothing"):
+            if r == 0:
+                N_r = np.power(vocabLen, self.gramsNumber) - totalNgramsCounts
+                T_r = 0
+                for gramsH in n2cInHeld:
+                    if gramsH not in self.ngrams2Counts:
+                        T_r += n2cInHeld[gramsH]
+            else:
+                gramsSet = self.count2Ngrams[r]
+                N_r = len(gramsSet)
+                T_r = sum([n2cInHeld[g] for g in gramsSet])
+            prob = T_r/(N_r*N)
+            # assign
+            gramsSet = self.count2Ngrams[r]
+            for grams in gramsSet:
+                self.set_ngrams_prob(self.ngrams2Probs, grams, prob)
+        self.update_all_subgrams_probs(self.ngrams2Probs, self.gramsNumber)
 
 
             
@@ -137,41 +177,45 @@ class Vocabulary:
               - B: the parameter.
         """
         # statistics for all N-grams on held-out data
-        n2cInHeld = defaultdict(Counter)
-        c2nInHeld = defaultdict(lambda: defaultdict(set))
-        for line in heldOutData:
+        c2nInHeld = defaultdict(set)
+        n2cInHeld = defaultdict(int)
+        for line in tqdm(heldOutData, desc="Processing with Held-Out Smoothing"):
             tokens = [self.bos] + line.strip().split() + [self.eos]
             for i in range(len(tokens)):
-                # calculate
-                j = i
-                while i-j >= self.gramsNumber-1 and j >= 0:
-                    n2cInHeld[i-j+1].update([tuple(tokens[j:i+1])])
-                    j -= 1
-        for n in n2cInHeld:
-            n2C = copy.copy(self.ngrams2Counts[n])
-            sortedN2C = sorted(n2C.items(), lambda k,v:v)
-            # build
-            for ngram, count in sortedN2C:
-                c2nInHeld[n][count].add(ngram)
+                # calculate >1 grams
+                if i >= self.gramsNumber-1:
+                    n2cInHeld[tuple(tokens[i-self.gramsNumber+1:i+1])] += 1
+
+        for grams in tqdm(n2cInHeld, desc="Processing with Held-Out Smoothing"):
+            c2nInHeld[n2cInHeld[grams]].add(grams)
         # tune
-        for n in self.ngrams2Probs:
-            for grams in tqdm(self.ngrams2Counts[n], desc="Tuning with cross-valid Smooth for n="+str(n)):
-                r = self.ngrams2Counts[n][grams]
-                N_r_1 = len(self.count2Ngrams[r])
-                N_1 = sum(n2cInHeld[n].values())
+        N_1 = sum(n2cInHeld.values())
+        N_2 = sum(self.ngrams2Counts.values())
+        for r in tqdm(self.count2Ngrams, desc="Tuning with cross-valid Smooth"):
+            allGrams = self.count2Ngrams[r]
+            if r == 0:
                 T_r_1 = 0
-                for gramsH, gramsHC in n2cInHeld[n]:
-                    if gramsH not in self.ngrams2Counts[n]:
-                        T_r_1 += gramsHC
-
-                N_r_2 = len(self.c2nInHeld[r])
-                N_2 = sum(self.ngrams2Counts[n].values())
+                for gramsH in n2cInHeld:
+                    if gramsH not in self.ngrams2Counts:
+                        T_r_1 += n2cInHeld[gramsH]
+                N_r_1 = np.power(len(self.ngrams2Counts), self.gramsNumber) - N_2
                 T_r_2 = 0
-                for gramsT, gramsTC in self.ngrams2Counts[n]:
-                    if gramsT not in n2cInHeld[n]:
-                        T_r_1 += gramsTC
-
-                self.ngrams2Probs[n][grams] = (T_r_1+T_r_2) / (N_1*N_r_1 + N_2+N_r_2)
+                for gramsT in self.ngrams2Counts:
+                    if gramsT not in n2cInHeld:
+                        T_r_2 += self.ngrams2Counts[gramsT]
+                N_r_2 = np.power(len(n2cInHeld), self.gramsNumber) - N_1
+            else:
+                gramsSet_1 = self.count2Ngrams[r]
+                gramsSet_2 = c2nInHeld[r]
+                T_r_1 = sum([n2cInHeld[g] for g in gramsSet_1])
+                T_r_2 = sum([self.ngrams2Counts[g] for g in gramsSet_2])
+                N_r_1 = len(self.count2Ngrams[r])
+                N_r_2 = len(c2nInHeld[r])
+            prob = (T_r_1+T_r_2) / (N_1*N_r_1 + N_2+N_r_2)
+            # assign
+            for grams in allGrams:
+                self.set_ngrams_prob(self.ngrams2Probs, grams, prob)
+        self.update_all_subgrams_probs(self.ngrams2Probs, self.gramsNumber)
 
 
 
@@ -181,34 +225,23 @@ class Vocabulary:
             Args:
               - B: the parameter.
         """
-        for n in self.ngrams2Probs:
-            for grams in tqdm(self.ngrams2Probs[n], desc="Tuning with Good-Turing Smooth for n="+str(n)):
-                r = self.ngrams2Counts[n][grams]
-                N_0 = self.count2Ngrams[n][0]
-                N_1 = self.count2Ngrams[n][1]
-                N_r = self.count2Ngrams[n][r]
+        for r in tqdm(self.count2Ngrams, desc="Tuning with Good-Turing Smooth for"):
+            N = sum(self.ngrams2Counts.values())
+            N_0 = len(self.count2Ngrams[0])
+            N_1 = len(self.count2Ngrams[1])
+            if r in self.count2Ngrams:
+                N_r = len(self.count2Ngrams[r])
+            else: N_r = 0
+            if r+1 in self.count2Ngrams:
                 N_r1 = len(self.count2Ngrams[r+1])
-                if r > 0:
-                    self.ngrams2Probs[n][grams] = (r+1)*(N_r1/N_r)
-                else:
-                    self.ngrams2Probs[n][grams] = N_0/N_1
+            else: N_r1 = 0
+            if r > 0:
+                prob = (r+1)*(N_r1/N_r)/N
+            else:
+                prob = N_0/N_1/N
+            gramsSet = self.count2Ngrams[r]
+            for grams in gramsSet:
+                self.set_ngrams_prob(self.ngrams2Probs, grams, prob)
+        self.update_all_subgrams_probs(self.ngrams2Probs, self.gramsNumber)
 
-
-    def get_grams_probs(self, grams: Tuple):
-        n = len(grams)
-        if grams in self.ngrams2Probs[n]:
-            return self.ngrams2Probs[n][grams]
-        else:
-            return self.ngrams2Probs[n][tuple([self.unk]*n)]
-
-    def get_grams_candi_probs(self, tok: str, candiGrams: Tuple):
-        n = len(candiGrams)
-        if candiGrams not in self.ngrams2Probs[n]:
-            jointProb = self.ngrams2Probs[n][tuple([self.unk]*n)]
-        else: jointProb = self.ngrams2Probs[n][candiGrams]
-        tokProb = 0.
-        for grams in self.ngrams2Probs[n]:
-            if grams[0] == tok:
-                tokProb += self.ngrams2Probs[n][grams]
-        return jointProb/tokProb
 

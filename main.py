@@ -10,26 +10,28 @@ import argparse
 import os
 
 def train(trainFile, devFile, gramsNumber,
-        smoothStrategy, BLaplace, vocabDir):
+        smoothStrategy, BLaplace):
     # process data
     with open(trainFile, "r") as f:
         corpusTrain = f.readlines()
     with open(devFile, "r") as f:
         corpusDev = f.readlines()
-    with open(devFile, "r") as f:
-        corpusTrainDev = corpusTrain + corpusDev
+    corpusTrainDev = corpusTrain + corpusDev
 
-    vocab = Vocabulary(gramsNumber, corpusTrainDev)
     if smoothStrategy == "laplace":
+        vocab = Vocabulary(gramsNumber, corpusTrainDev)
         vocab.tune_with_Laplace_smoothing(BLaplace)
     elif smoothStrategy == "held_out":
+        vocab = Vocabulary(gramsNumber, corpusTrain)
         vocab.tune_with_held_out_smoothing(corpusDev)
     elif smoothStrategy == "cross_valid":
+        vocab = Vocabulary(gramsNumber, corpusTrain)
         vocab.tune_with_cross_val_smoothing(corpusDev)
     elif smoothStrategy == "good_turing":
+        vocab = Vocabulary(gramsNumber, corpusTrain)
         vocab.tune_with_good_turing_smoothing()
     else:
-        pass
+        raise KeyError
     return vocab
 
 def predidct_file(model, gramsGumber, testFile, saveFile):
@@ -46,19 +48,25 @@ def predidct_file(model, gramsGumber, testFile, saveFile):
             f.write(str(sentProb)+"\t"+str(sentPP)+"\n")
 
 def predict_sent(model, gramsNumber, sent, idx, topK, saveFile):
-    rt = model.predict_topk_with_index(sent, gramsNumber, idx, topK)
-    print(rt)
-    # save results
-    with open(saveFile, "w") as f:
-        f.write("sent: " + sent + "\n")
-        f.write("top-k probs: ")
-        f.write(" ".join(["({},{})".format(tok, str(prob)) for tok,prob in
-                          rt[0]])+"\n")
-        f.write("Current token: {}, with probs: {}, and ranking index:\
-                {}\n".format(rt[1][0], str(rt[1][1]), str(rt[1][2])))
+    if os.path.isfile(sent):
+        with open(sent, "r") as f:
+            lines = f.readlines()
+    else:
+        lines = [sent]
+    with open(saveFile, "a") as f:
+        for line in lines:
+            rt = model.predict_topk_with_index(line, gramsNumber, idx, topK)
+            print(rt)
+            # save results
+            f.write("sent: " + line + "\n")
+            f.write("top-k probs: ")
+            f.write(" ".join(["({},{})".format(tok, str(prob)) for tok,prob in
+                              rt[0]])+"\n")
+            f.write("Current token: {}, with probs: {}, and ranking index:\
+                    {}\n\n".format(rt[1][0], str(rt[1][1]), str(rt[1][2])))
 
-def analysis_with_spearman_rank_correlation(uniVocab, ngrams2ProbsA, ngrams2ProbsB, saveFile):
-    rt = spearman_rank_correlation_annalysis(uniVocab, ngrams2ProbsA, ngrams2ProbsB)
+def analysis_with_spearman_rank_correlation(allGrams, vocabA, vocabB, saveFile):
+    rt = spearman_rank_correlation_annalysis(allGrams, vocabA, vocabB)
     with open(saveFile, "w") as f:
         f.write("The correlation result between two methods is {}".format(str(rt)))
     return rt
@@ -88,8 +96,7 @@ if __name__ == '__main__':
                 args.dev_file,
                 args.grams_number,
                 args.smooth_strategy,
-                args.B_laplace,
-                args.vocab_dir)
+                args.B_laplace)
     model = MarkovModel(vocab)
 
     if args.func == "pred_file":
@@ -98,23 +105,22 @@ if __name__ == '__main__':
                                    "test_file_results."+args.smooth_strategy+".txt"))
     elif args.func == "pred_sent":
         predict_sent(model, args.grams_number, args.sent, args.idx, args.topk,
-                     os.path.join(args.out_dir, "test_sent_results"+args.smooth_strategy+".txt"))
+                     os.path.join(args.out_dir, "test_sent_results."+args.smooth_strategy+".txt"))
     elif args.func == "spearman_analysis":
         vocab1 = train(args.train_file,
                       args.dev_file,
+                      args.grams_number,
                       args.analysis_model1,
-                      args.B_laplace,
-                      args.vocab_dir)
+                      args.B_laplace)
         vocab2 = train(args.train_file,
                       args.dev_file,
+                      args.grams_number,
                       args.analysis_model2,
-                      args.B_laplace,
-                      args.vocab_dir)
-        analysis_with_spearman_rank_correlation(vocab1.uniVocab,
-                vocab1.ngrams2Probs[args.gramsNumber],
-                vocab2.ngrams2Probs[args.gramsNumber],
-                os.path.join(args.out_dir,
-                             "analysis_results."+args.analysis_model1+"-"+args.analysis_model2+".txt"))
+                      args.B_laplace)
+        analysis_with_spearman_rank_correlation(list(vocab1.ngrams2Counts.keys()),
+                    vocab1,
+                    vocab2,
+                    os.path.join(args.out_dir,
+                        "analysis_results."+args.analysis_model1+"-"+args.analysis_model2+".txt"))
     else:
-        raise IOError
-        "test for brach"
+        raise KeyError
