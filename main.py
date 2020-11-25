@@ -19,8 +19,6 @@ def train(trainFile, devFile, gramsNumber,
     with open(devFile, "r") as f:
         corpusTrainDev = corpusTrain + corpusDev
 
-    import ipdb
-    ipdb.set_trace()
     vocab = Vocabulary(gramsNumber, corpusTrainDev)
     if smoothStrategy == "laplace":
         vocab.tune_with_Laplace_smoothing(BLaplace)
@@ -45,11 +43,9 @@ def predidct_file(model, gramsGumber, testFile, saveFile):
     # save results
     with open(saveFile, "w") as f:
         for sentProb, sentPP in rt:
-            f.write(sentProb+"\t"+sentPP+"\n")
+            f.write(str(sentProb)+"\t"+str(sentPP)+"\n")
 
 def predict_sent(model, gramsNumber, sent, idx, topK, saveFile):
-    import ipdb
-    ipdb.set_trace()
     rt = model.predict_topk_with_index(sent, gramsNumber, idx, topK)
     print(rt)
     # save results
@@ -61,10 +57,8 @@ def predict_sent(model, gramsNumber, sent, idx, topK, saveFile):
         f.write("Current token: {}, with probs: {}, and ranking index:\
                 {}\n".format(rt[1][0], str(rt[1][1]), str(rt[1][2])))
 
-def analysis_with_spearman_rank_correlation(uniVocab, ngramsProbsVocabsA,
-                                            ngramsProbsVocabsB, gramsNumber,
-                                            saveFile):
-    rt = an_rank_correlation_annalysis(uniVocab, ngramsProbsVocabsA, ngramsProbsVocabsB, gramsNumber)
+def analysis_with_spearman_rank_correlation(uniVocab, ngrams2ProbsA, ngrams2ProbsB, saveFile):
+    rt = spearman_rank_correlation_annalysis(uniVocab, ngrams2ProbsA, ngrams2ProbsB)
     with open(saveFile, "w") as f:
         f.write("The correlation result between two methods is {}".format(str(rt)))
     return rt
@@ -75,11 +69,11 @@ def analysis_with_spearman_rank_correlation(uniVocab, ngramsProbsVocabsA,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--func", type=str, default="pred_sent", help="which function will be used.")
-    parser.add_argument("--train_file", type=str, default="data/corpus-new/s3/train.txt")
-    parser.add_argument("--dev_file", type=str, default="data/corpus-new/s3/valid.txt")
-    parser.add_argument("--test_file", type=str, default="data/corpus-new/s3/test.txt")
-    parser.add_argument("--sent", type=str, default="原定 计划 是 早晨 在 一 座 山 上 吃 午饭")
-    parser.add_argument("--idx", type=int, default=1)
+    parser.add_argument("--train_file", type=str, default="data/s3/train.txt")
+    parser.add_argument("--dev_file", type=str, default="data/s3/valid.txt")
+    parser.add_argument("--test_file", type=str, default="data/s3/test.txt")
+    parser.add_argument("--sent", type=str, default="日本 漫画 的 题材 非常 广泛")
+    parser.add_argument("--idx", type=int, default=3)
     parser.add_argument("--topk", type=int, default=10)
     parser.add_argument("--vocab_dir", type=str, default="outputs/vocabs")
     parser.add_argument("--out_dir", type=str, default="outputs/results")
@@ -116,11 +110,11 @@ if __name__ == '__main__':
                       args.analysis_model2,
                       args.B_laplace,
                       args.vocab_dir)
-        analysis_with_spearman_rank_correlation(vocabSmoothLaplace.uniVocab,
-                vocab1.ProbsVocabs[args.grams_number],
-                vocab2.ProbsVocabs[args.grams_number],
-                args.grams_number,
+        analysis_with_spearman_rank_correlation(vocab1.uniVocab,
+                vocab1.ngrams2Probs[args.gramsNumber],
+                vocab2.ngrams2Probs[args.gramsNumber],
                 os.path.join(args.out_dir,
                              "analysis_results."+args.analysis_model1+"-"+args.analysis_model2+".txt"))
     else:
         raise IOError
+        "test for brach"

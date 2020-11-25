@@ -18,20 +18,20 @@ class MarkovModel:
         """ Calculate the probability of a sentence based on ngrams model.
         """ 
         tokens = [self.vocab.bos] + sent.strip().split() + [self.vocab.eos]
-        tokIds = self.vocab.convert_tokens_to_ids(tokens)
         rt_prob = 1.
         # process the first `gramsNumber-1` tokens
         for i in range(1, min(gramsNumber-1, len(tokens))):
-            gramsIds = tokIds[:i+1]
-            curTokId = tokIds[i]
-            rt_prob *= self.vocab.ngramsProbsVocabs[1][curTokId] /\
-                self.vocab.get_value(self.vocab.ngramsProbsVocabs[gramsNumber], gramsIds)
+            curTok = tuple([tokens[i]])
+            grams = tuple(tokens[:i+1])
+            rt_prob *= self.vocab.get_grams_probs(grams) /\
+                self.vocab.get_grams_probs(curTok)
+            rt_prob *= self.vocab.get_grams_candi_probs(tokens[i], grams)
         # process the rest
         for i in range(gramsNumber-1, len(tokens)):
-            gramsIds = tokIds[i-gramsNumber+1:i+1]
-            curTokId = tokIds[i]
-            rt_prob *= self.vocab.get_value(self.vocab.ngramsProbsVocabs[gramsNumber], gramsIds) /\
-                self.vocab.ngramsProbsVocabs[1][curTokId]
+            curTok = tuple([tokens[i]])
+            grams = tuple(tokens[i-gramsNumber+1:i+1])
+            rt_prob *= self.vocab.get_grams_probs(grams) /\
+                self.vocab.get_grams_probs(curTok)
         rt_pp = np.power(rt_prob, -gramsNumber)
         return rt_prob, rt_pp
 
@@ -45,39 +45,42 @@ class MarkovModel:
         """ 
         assert idx >0
         tokens = [self.vocab.bos] + sent.strip().split() + [self.vocab.eos]
-        tokIds = self.vocab.convert_tokens_to_ids(tokens)
         rt = 1.
         # process the first `gramsNumber-1` tokens
         for i in range(1, min(gramsNumber-1, len(tokens))):
-            gramsIds = tokIds[:i+1]
-            curTokId = tokIds[i]
-            rt *= self.vocab.get_value(self.vocab.ngramsProbsVocabs[gramsNumber], gramsIds) /\
-                self.vocab.ngramsProbsVocabs[1][curTokId]
+            grams = tuple(tokens[:i+1])
+            curTok = tuple([tokens[i]])
+            rt *= self.vocab.get_grams_probs(grams) /\
+                self.vocab.get_grams_probs(curTok)
+            # rt *= self.vocab.get_grams_candi_probs(tokens[i], grams)
             if i == idx:
-                prevToksIds = tokIds[:i]
+                prevToks = grams[:i]
                 allToksProbs = []
                 for j in range(len(self.vocab.uniVocab)):
-                    _curTok, _curTokId = self.vocab.uniVocab[j], j
-                    allToksIds = prevToksIds + [_curTokId]
-                    gramProb = self.vocab.get_value(self.vocab.ngramsProbsVocabs[gramsNumber], allToksIds)
-                    allToksProbs.append((_curTok ,gramProb / self.vocab.ngramsProbsVocabs[1][_curTokId]))
+                    _curTok = self.vocab.uniVocab[j]
+                    allToks = prevToks + tuple([_curTok])
+                    gramProb = self.vocab.get_grams_probs(allToks)
+                    allToksProbs.append((_curTok ,gramProb / self.vocab.get_grams_probs(curTok)))
                 allToksProbs = sorted(allToksProbs, key=lambda x:x[1], reverse=True)
                 rankCurTok = [x[0] for x in allToksProbs].index(tokens[i])
                 allToksProbs = allToksProbs[:topK]
                 return allToksProbs, (tokens[i], rt, rankCurTok)
         # process the rest
         for i in range(gramsNumber-1, len(tokens)):
-            gramsIds = tokIds[i-gramsNumber+1:i+1]
-            curTokId = tokIds[i]
-            rt *= self.vocab.get_value(self.vocab.ngramsProbsVocabs[gramsNumber], gramsIds) / self.vocab.ngramsProbsVocabs[i][curTokId]
+            grams = tuple(tokens[i-gramsNumber+1:i+1])
+            curTok = tuple([tokens[i]])
+            rt *= self.vocab.get_grams_probs(grams) /\
+                self.vocab.get_grams_probs(curTok)
+            # rt *= self.vocab.get_grams_candi_probs(tokens[i], grams)
             if i == idx:
-                prevToksIds = tokIds[:i]
+                prevToks = grams[:i]
                 allToksProbs = []
                 for j in range(len(self.vocab.uniVocab)):
-                    _curTok, _curTokId = self.vocab.uniVocab[j], j
-                    allToksIds = prevToksIds + [_curTokId]
-                    gramProb = self.vocab.get_value(self.vocab.ngramsProbsVocabs[gramsNumber], allToksIds)
-                    allToksProbs.append((_curTok ,gramProb / self.vocab.ngramsProbsVocabs[1][_curTokId]))
+                    _curTok = self.vocab.uniVocab[j]
+                    allToks = prevToks + tuple([_curTok])
+                    gramProb = self.vocab.get_grams_probs(allToks)
+                    # candiProb = self.vocab.get_grams_candi_probs(tokens[i], allToks)
+                    allToksProbs.append((_curTok ,gramProb / self.vocab.get_grams_probs(curTok)))
                 allToksProbs = sorted(allToksProbs, key=lambda x:x[1], reverse=True)
                 rankCurTok = [x[0] for x in allToksProbs].index(tokens[i])
                 allToksProbs = allToksProbs[:topK]
