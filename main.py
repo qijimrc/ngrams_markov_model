@@ -56,19 +56,24 @@ def predict_sent(model, gramsNumber, sent, idx, topK, saveFile):
     with open(saveFile, "a") as f:
         for line in lines:
             rt = model.predict_topk_with_index(line, gramsNumber, idx, topK)
+            rt_prob, rt_pp, allToksProbs, curTokInfo = rt
             print(rt)
             # save results
             f.write("sent: " + line + "\n")
+            f.write("sent prob: {}, sent pp: {}.\n".format(str(rt_prob), rt_pp))
             f.write("top-k probs: ")
-            f.write(" ".join(["({},{})".format(tok, str(prob)) for tok,prob in
-                              rt[0]])+"\n")
+            f.write(" ".join(["({},{})".format(tok, str(prob)) for tok,prob in allToksProbs])+"\n")
             f.write("Current token: {}, with probs: {}, and ranking index:\
-                    {}\n\n".format(rt[1][0], str(rt[1][1]), str(rt[1][2])))
+                    {}\n\n".format(curTokInfo[0], str(curTokInfo[1]), str(curTokInfo[2])))
 
 def analysis_with_spearman_rank_correlation(allGrams, vocabA, vocabB, saveFile):
-    rt = spearman_rank_correlation_annalysis(allGrams, vocabA, vocabB)
+    rt, maxGramsInfo = spearman_rank_correlation_annalysis(allGrams, vocabA, vocabB)
     with open(saveFile, "w") as f:
-        f.write("The correlation result between two methods is {}".format(str(rt)))
+        maxGrams = allGrams[maxGramsInfo["maxDiffIdx"]]
+        submaxGrams = allGrams[maxGramsInfo["submaxDiffIdx"]]
+        f.write("The correlation result between two methods is {}\n".format(str(rt)))
+        f.write("Maximum different grams: "+str(maxGrams) + ", Second-maximum different grams: "+str(submaxGrams)+"\n")
+        f.write(str(maxGramsInfo))
     return rt
 
 
@@ -102,10 +107,10 @@ if __name__ == '__main__':
     if args.func == "pred_file":
         predidct_file(model, args.grams_number, args.test_file,
                       os.path.join(args.out_dir,
-                                   "test_file_results."+args.smooth_strategy+".txt"))
+                                   "test_file_results."+str(args.grams_number)+"grams."+args.smooth_strategy+".txt"))
     elif args.func == "pred_sent":
         predict_sent(model, args.grams_number, args.sent, args.idx, args.topk,
-                     os.path.join(args.out_dir, "test_sent_results."+args.smooth_strategy+".txt"))
+                     os.path.join(args.out_dir, "test_sent_results."+str(args.grams_number)+"grams."+args.smooth_strategy+".txt"))
     elif args.func == "spearman_analysis":
         vocab1 = train(args.train_file,
                       args.dev_file,
@@ -121,6 +126,6 @@ if __name__ == '__main__':
                     vocab1,
                     vocab2,
                     os.path.join(args.out_dir,
-                        "analysis_results."+args.analysis_model1+"-"+args.analysis_model2+".txt"))
+                        "analysis_results."+str(args.grams_number)+"grams."+args.analysis_model1+"-"+args.analysis_model2+".txt"))
     else:
         raise KeyError

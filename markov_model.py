@@ -65,7 +65,7 @@ class MarkovModel:
                 else:
                     rankCurTok = allToksToks.index(curTok)
                 allToksProbs = allToksProbs[:topK]
-                return allToksProbs, (tokens[i], rt, rankCurTok)
+                # return allToksProbs, (tokens[i], rt, rankCurTok)
         # process the rest
         for i in range(gramsNumber-1, len(tokens)):
             grams = tuple(tokens[i-gramsNumber+1:i+1])
@@ -88,7 +88,8 @@ class MarkovModel:
                 else:
                     rankCurTok = allToksToks.index(curTok)
                 allToksProbs = allToksProbs[:topK]
-                return allToksProbs, (tokens[i], rt, rankCurTok)
+            rt_pp = np.power(rt, -1/gramsNumber)
+        return rt, rt_pp, allToksProbs, (tokens[idx], rt, rankCurTok)
 
 
 

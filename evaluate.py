@@ -28,7 +28,27 @@ def spearman_rank_correlation_annalysis(
     argSortB = np.argsort(allProbsB)[::-1]
     # claculate
     rt = 1 - 6*((np.power((argSortA - argSortB), 2)).sum()) / (np.power(len(argSortA),3) - len(argSortA))
-    return rt
+    # find max
+    diff = np.abs(argSortA - argSortB)
+    maxDiffIdx = diff.argmax()
+    diff[maxDiffIdx] = -1
+    submaxDiffIdx = diff.argmax()
+
+    maxDiffInfo = {
+        "maxDiffIdx": maxDiffIdx,
+        "submaxDiffIdx": submaxDiffIdx,
+        "maxGramsProbsA" : allProbsA[maxDiffIdx],
+        "maxGramsRankA" : argSortA[maxDiffIdx],
+        "maxGramsProbsB" : allProbsB[maxDiffIdx],
+        "maxGramsRankB" : argSortB[maxDiffIdx],
+        "submaxGramsProbsA" : allProbsA[submaxDiffIdx],
+        "submaxGramsRankA" : argSortA[submaxDiffIdx],
+        "submaxGramsProbsB" : allProbsB[submaxDiffIdx],
+        "submaxGramsRankB" : argSortB[submaxDiffIdx]
+    }
+    
+
+    return rt, maxDiffInfo
 
 
 
